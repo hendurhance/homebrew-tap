@@ -1,0 +1,91 @@
+name: Bump Pandia cask
+
+on:
+  # Dormant until hendurhance/pandia holds a PAT in TAP_DISPATCH_TOKEN. The
+  # cron below covers the same ground without one.
+  repository_dispatch:
+    types: [pandia-release]
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare latest published release against the cask
+        id: v
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          latest=$(gh release view --repo hendurhance/pandia --json tagName --jq .tagName | sed 's/^v//')
+          current=$(sed -n 's/^  version "\(.*\)"$/\1/p' Casks/pandia.rb)
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "published=$latest  cask=$current"
+
+      - name: Rewrite cask
+        if: steps.v.outputs.latest != steps.v.outputs.current
+        run: |
+          set -euo pipefail
+          V='${{ steps.v.outputs.latest }}'
+          BASE="https://github.com/hendurhance/pandia/releases/download/v$V"
+          # A draft release 404s here — assets only become downloadable once it
+          # is published. Failing is correct: never commit a cask that cannot
+          # install.
+          curl -sSfL -o arm.dmg "$BASE/Pandia_${V}_aarch64.dmg"
+          curl -sSfL -o intel.dmg "$BASE/Pandia_${V}_x64.dmg"
+          ARM=$(shasum -a 256 arm.dmg | cut -d' ' -f1)
+          INTEL=$(shasum -a 256 intel.dmg | cut -d' ' -f1)
+          rm -f arm.dmg intel.dmg
+          if [ -z "$ARM" ] || [ -z "$INTEL" ]; then
+            echo "::error::empty checksum — refusing to write the cask"
+            exit 1
+          fi
+          # Regenerated whole rather than patched in place: no sed pattern to
+          # drift out of sync with the file's formatting.
+          cat > Casks/pandia.rb <<EOF
+          cask "pandia" do
+            arch arm: "aarch64", intel: "x64"
+
+            version "$V"
+            sha256 arm:   "$ARM",
+                   intel: "$INTEL"
+
+            url "https://github.com/hendurhance/pandia/releases/download/v#{version}/Pandia_#{version}_#{arch}.dmg"
+            name "Pandia"
+            desc "Cross-platform desktop JSON IDE"
+            homepage "https://github.com/hendurhance/pandia"
+
+            livecheck do
+              url :url
+              strategy :github_latest
+            end
+
+            depends_on macos: :catalina
+
+            app "Pandia.app"
+
+            zap trash: [
+              "~/Library/Application Support/com.pandia.ide",
+              "~/Library/Caches/com.pandia.ide",
+              "~/Library/HTTPStorages/com.pandia.ide",
+              "~/Library/Preferences/com.pandia.ide.plist",
+              "~/Library/Saved Application State/com.pandia.ide.savedState",
+            ]
+          end
+          EOF
+
+      - name: Commit
+        if: steps.v.outputs.latest != steps.v.outputs.current
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/pandia.rb
+          git commit -m "pandia ${{ steps.v.outputs.latest }}"
+          git push
