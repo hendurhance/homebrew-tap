@@ -1,9 +1,9 @@
 cask "pandia" do
   arch arm: "aarch64", intel: "x64"
 
-  version "1.0.4"
-  sha256 arm:   "09d8310b58a31f95b25a99bffa3e041f322fa48b924ffaa7043cbe8ad7810495",
-         intel: "665b75c17d98ef179722761169b9a5ebbf6c57b56f36723ede3747f2ed695c0e"
+  version "1.0.5"
+  sha256 arm:   "06941ef256e56affe4bc78f4ccf16aa344c9c87049ed71aa1c3331d9eb15c990",
+         intel: "8bcc097fcc960426a722f42e3a463d3bbe3638de308285338b66cf33a473c873"
 
   url "https://github.com/hendurhance/pandia/releases/download/v#{version}/Pandia_#{version}_#{arch}.dmg"
   name "Pandia"
