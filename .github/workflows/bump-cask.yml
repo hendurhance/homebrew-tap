@@ -23,17 +23,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          latest=$(gh release view --repo hendurhance/pandia --json tagName --jq .tagName | sed 's/^v//')
-          current=$(sed -n 's/^  version "\(.*\)"$/\1/p' Casks/pandia.rb)
-          echo "latest=$latest" >> "$GITHUB_OUTPUT"
-          echo "current=$current" >> "$GITHUB_OUTPUT"
-          echo "published=$latest  cask=$current"
-
-      - name: Rewrite cask
-        if: steps.v.outputs.latest != steps.v.outputs.current
-        run: |
           set -euo pipefail
-          V='${{ steps.v.outputs.latest }}'
+          V=$(gh release view --repo hendurhance/pandia --json tagName --jq .tagName | sed 's/^v//')
           BASE="https://github.com/hendurhance/pandia/releases/download/v$V"
           # A draft release 404s here — assets only become downloadable once it
           # is published. Failing is correct: never commit a cask that cannot
@@ -47,6 +38,31 @@ jobs:
             echo "::error::empty checksum — refusing to write the cask"
             exit 1
           fi
+          cask_version=$(sed -n 's/^  version "\(.*\)"$/\1/p' Casks/pandia.rb)
+          cask_shas=$(grep -o '[0-9a-f]\{64\}' Casks/pandia.rb | paste -sd' ' -)
+          echo "published=$V $ARM $INTEL"
+          echo "cask=$cask_version $cask_shas"
+          if [ "$V $ARM $INTEL" = "$cask_version $cask_shas" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [ "$V" = "$cask_version" ]; then
+            echo "message=pandia $V (refresh checksums)" >> "$GITHUB_OUTPUT"
+          else
+            echo "message=pandia $V" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "arm=$ARM" >> "$GITHUB_OUTPUT"
+          echo "intel=$INTEL" >> "$GITHUB_OUTPUT"
+
+      - name: Rewrite cask
+        if: steps.v.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          V='${{ steps.v.outputs.version }}'
+          ARM='${{ steps.v.outputs.arm }}'
+          INTEL='${{ steps.v.outputs.intel }}'
           # Regenerated whole rather than patched in place: no sed pattern to
           # drift out of sync with the file's formatting.
           cat > Casks/pandia.rb <<EOF
@@ -82,10 +98,10 @@ jobs:
           EOF
 
       - name: Commit
-        if: steps.v.outputs.latest != steps.v.outputs.current
+        if: steps.v.outputs.changed == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Casks/pandia.rb
-          git commit -m "pandia ${{ steps.v.outputs.latest }}"
+          git commit -m "${{ steps.v.outputs.message }}"
           git push
