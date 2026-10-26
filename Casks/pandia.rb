@@ -18,6 +18,7 @@ cask "pandia" do
   depends_on :macos
 
   app "Pandia.app"
+  binary "#{appdir}/Pandia.app/Contents/MacOS/Pandia", target: "pandia"
 
   zap trash: [
     "~/Library/Application Support/com.pandia.ide",
